@@ -1,0 +1,13 @@
+{
+  "Author": "Miu-B",
+  "Name": "PFBeacon",
+  "Punchline": "Send sanitized MINE Party Finder alerts to a configured bot service.",
+  "Description": "Observes Party Finder listings, filters for qualifying MINE raid listings, and sends sanitized events to a separately hosted PFBeacon bot service. No Discord credentials are stored in the plugin.",
+  "ApplicableVersion": "any",
+  "RepoUrl": "https://github.com/Miu-B/PFBeaconPlugin",
+  "Tags": [
+    "partyfinder",
+    "discord",
+    "mine"
+  ]
+}

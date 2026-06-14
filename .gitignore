@@ -1,0 +1,25 @@
+# build output
+bin/
+obj/
+artifacts/
+
+# local private docs/plans
+/docs/
+
+# local Dalamud/game config
+*.local.json
+*.user
+
+# local env/secrets
+.env
+.env.*
+!.env.example
+
+# IDE/OS
+.vscode/
+.idea/
+.DS_Store
+
+# test output
+TestResults/
+coverage/
