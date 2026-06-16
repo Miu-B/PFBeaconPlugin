@@ -100,5 +100,11 @@ jobs:
           Set-Content -Path ./repo.json -Value $content -NoNewline
 
           git add repo.json
-          git commit -m "chore: update plugin repo manifest for $tag" || exit 0
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "repo.json already up to date for $tag"
+            exit 0
+          }
+
+          git commit -m "chore: update plugin repo manifest for $tag"
           git push origin main
