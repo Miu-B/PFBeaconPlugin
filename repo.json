@@ -3,8 +3,8 @@
     "Author": "Miu-B",
     "Name": "PFBeacon",
     "InternalName": "PFBeacon",
-    "AssemblyVersion": "0.1.0.1",
-    "TestingAssemblyVersion": "0.1.0.1",
+    "AssemblyVersion": "0.1.0.2",
+    "TestingAssemblyVersion": "0.1.0.2",
     "Description": "Observes Party Finder listings, filters for qualifying MINE raid listings, and sends sanitized observations to the official PFBeacon service. Does not send PF descriptions, player names, recruiter names, worlds, or Discord routing data.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/Miu-B/PFBeaconPlugin",
@@ -21,8 +21,8 @@
     "IsTestingExclusive": "False",
     "DownloadCount": 0,
     "LastUpdate": 0,
-    "DownloadLinkInstall": "https://github.com/Miu-B/PFBeaconPlugin/releases/download/v0.1.0.1/PFBeacon.zip",
-    "DownloadLinkTesting": "https://github.com/Miu-B/PFBeaconPlugin/releases/download/v0.1.0.1/PFBeacon.zip",
-    "DownloadLinkUpdate": "https://github.com/Miu-B/PFBeaconPlugin/releases/download/v0.1.0.1/PFBeacon.zip"
+    "DownloadLinkInstall": "https://github.com/Miu-B/PFBeaconPlugin/releases/download/v0.1.0.2/PFBeacon.zip",
+    "DownloadLinkTesting": "https://github.com/Miu-B/PFBeaconPlugin/releases/download/v0.1.0.2/PFBeacon.zip",
+    "DownloadLinkUpdate": "https://github.com/Miu-B/PFBeaconPlugin/releases/download/v0.1.0.2/PFBeacon.zip"
   }
 ]
