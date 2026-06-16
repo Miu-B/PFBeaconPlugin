@@ -14,6 +14,7 @@ public sealed class Configuration : IPluginConfiguration
     public bool RequireMinimumItemLevel { get; set; } = true;
     public bool RequireNoEcho { get; set; } = true;
 
+    public bool IncludeRaid { get; set; } = true;
     public bool IncludeExtreme { get; set; } = true;
     public bool IncludeSavage { get; set; } = true;
     public bool IncludeUltimate { get; set; } = true;

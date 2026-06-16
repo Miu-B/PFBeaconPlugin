@@ -30,6 +30,7 @@ internal sealed class ListingFilter
 
         return snapshot.ContentCategory switch
         {
+            "Raid" => configuration.IncludeRaid,
             "Extreme" => configuration.IncludeExtreme,
             "Savage" => configuration.IncludeSavage,
             "Ultimate" => configuration.IncludeUltimate,

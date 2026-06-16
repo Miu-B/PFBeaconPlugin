@@ -116,6 +116,9 @@ internal sealed class ListingMapper
             || contentName.Contains("Minstrel", StringComparison.OrdinalIgnoreCase))
             return "Extreme";
 
+        if (partyFinderCategory == DutyCategory.Raids)
+            return "Raid";
+
         if (partyFinderCategory == DutyCategory.HighEndDuty)
             return "HighEndDuty";
 

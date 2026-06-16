@@ -13,7 +13,7 @@ The goal is simple: help people find old-content groups faster, while keeping de
 ## What it does
 
 * Watches Party Finder listings when you open or refresh the Party Finder window
-* Filters for 8-player Extreme, Savage, Ultimate, and Unreal listings
+* Filters for 8-player Raid, Extreme, Savage, Ultimate, and Unreal listings
 * Requires Minimum Item Level and No Echo
 * Sends sanitized observations to the PFBeacon service
 * Helps the Discord bot keep alerts active, stale, or deleted as PF listings change
