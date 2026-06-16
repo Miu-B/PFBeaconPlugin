@@ -30,6 +30,8 @@ internal sealed class BotApiSendException : Exception
 
 internal sealed class BotApiClient : IDisposable
 {
+    public const string OfficialApiBaseUrl = "https://api.pfbeacon.com";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -51,7 +53,7 @@ internal sealed class BotApiClient : IDisposable
     public async Task<(bool Ok, string Message)> TestConnectionAsync(CancellationToken cancellationToken = default)
     {
         if (!HasMinimumConfiguration())
-            return (false, "Bot API URL and token are required.");
+            return (false, "API token is required.");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, BuildUri("/api/v1/plugin/me"));
         AddAuthorization(request);
@@ -71,13 +73,29 @@ internal sealed class BotApiClient : IDisposable
 
     public async Task SendEventAsync(PfListingEvent listingEvent, CancellationToken cancellationToken = default)
     {
-        if (!HasMinimumConfiguration())
-            throw new BotApiSendException(BotApiSendErrorKind.NotConfigured, "Bot API URL and token are required.");
-
         var payload = BuildEventPayload(listingEvent);
+        await SendJsonAsync("/api/v1/listings/events", payload, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task SendSnapshotAsync(PfListingSnapshotComplete snapshot, CancellationToken cancellationToken = default)
+    {
+        var payload = BuildSnapshotPayload(snapshot);
+        await SendJsonAsync("/api/v1/listings/snapshot", payload, cancellationToken).ConfigureAwait(false);
+    }
+
+    public void Dispose()
+    {
+        httpClient.Dispose();
+    }
+
+    private async Task SendJsonAsync(string path, object payload, CancellationToken cancellationToken)
+    {
+        if (!HasMinimumConfiguration())
+            throw new BotApiSendException(BotApiSendErrorKind.NotConfigured, "API token is required.");
+
         var json = JsonSerializer.Serialize(payload, JsonOptions);
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, BuildUri("/api/v1/listings/events"));
+        using var request = new HttpRequestMessage(HttpMethod.Post, BuildUri(path));
         AddAuthorization(request);
         request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
@@ -100,23 +118,14 @@ internal sealed class BotApiClient : IDisposable
         throw new BotApiSendException(BotApiSendErrorKind.Rejected, $"PFBeacon bot service rejected the payload with {(int)response.StatusCode}.");
     }
 
-    public void Dispose()
-    {
-        httpClient.Dispose();
-    }
-
     private bool HasMinimumConfiguration()
     {
-        return !string.IsNullOrWhiteSpace(configuration.BotApiUrl)
-               && Uri.TryCreate(configuration.BotApiUrl, UriKind.Absolute, out var uri)
-               && (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback))
-               && !string.IsNullOrWhiteSpace(configuration.UserApiToken);
+        return !string.IsNullOrWhiteSpace(configuration.UserApiToken);
     }
 
-    private Uri BuildUri(string path)
+    private static Uri BuildUri(string path)
     {
-        var baseUrl = configuration.BotApiUrl.Trim().TrimEnd('/');
-        return new Uri($"{baseUrl}{path}");
+        return new Uri($"{OfficialApiBaseUrl}{path}");
     }
 
     private void AddAuthorization(HttpRequestMessage request)
@@ -130,13 +139,33 @@ internal sealed class BotApiClient : IDisposable
         {
             EventType = EventTypeName(listingEvent.EventType),
             SchemaVersion = 1,
-            Client = new
-            {
-                PluginVersion = typeof(BotApiClient).Assembly.GetName().Version?.ToString() ?? "0.1.0",
-                DalamudApiLevel = "current",
-                configuration.ClientInstanceId,
-            },
+            Client = BuildClientPayload(),
             Listing = listingEvent.Listing,
+        };
+    }
+
+    private object BuildSnapshotPayload(PfListingSnapshotComplete snapshot)
+    {
+        return new
+        {
+            SchemaVersion = 1,
+            Client = BuildClientPayload(),
+            Scope = new
+            {
+                snapshot.DataCenter,
+            },
+            snapshot.ActiveCompositeKeys,
+            snapshot.ObservedAtUtc,
+        };
+    }
+
+    private object BuildClientPayload()
+    {
+        return new
+        {
+            PluginVersion = typeof(BotApiClient).Assembly.GetName().Version?.ToString() ?? "0.1.0",
+            DalamudApiLevel = "current",
+            configuration.ClientInstanceId,
         };
     }
 

@@ -35,7 +35,7 @@ public sealed class Plugin : IDalamudPlugin
 
         botApiClient = new BotApiClient(Configuration);
         outboundEventQueue = new OutboundEventQueue(Configuration, botApiClient);
-        var mapper = new ListingMapper(Configuration);
+        var mapper = new ListingMapper();
         var filter = new ListingFilter(Configuration);
         var listingCache = new ListingCache(Configuration);
         partyFinderObserver = new PartyFinderObserver(Configuration, mapper, filter, listingCache, outboundEventQueue);
@@ -52,7 +52,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginServices.PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
 
         partyFinderObserver.Start();
-        PluginServices.Log.Information("PFBeacon loaded. FeasibilityLoggingOnly={LoggingOnly}", Configuration.FeasibilityLoggingOnly);
+        PluginServices.Log.Information("PFBeacon loaded");
     }
 
     public Configuration Configuration { get; }
@@ -76,11 +76,10 @@ public sealed class Plugin : IDalamudPlugin
         if (trimmed.Equals("status", StringComparison.OrdinalIgnoreCase))
         {
             PluginServices.Log.Information(
-                "PFBeacon status: Enabled={Enabled}, LoggingOnly={LoggingOnly}, HasUrl={HasUrl}, HasToken={HasToken}",
+                "PFBeacon status: Enabled={Enabled}, HasToken={HasToken}, Service={Service}",
                 Configuration.Enabled,
-                Configuration.FeasibilityLoggingOnly,
-                !string.IsNullOrWhiteSpace(Configuration.BotApiUrl),
-                !string.IsNullOrWhiteSpace(Configuration.UserApiToken));
+                !string.IsNullOrWhiteSpace(Configuration.UserApiToken),
+                BotApiClient.OfficialApiBaseUrl);
             return;
         }
 

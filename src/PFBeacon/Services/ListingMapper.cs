@@ -8,13 +8,6 @@ internal sealed class ListingMapper
 {
     private static readonly StringComparer Ordinal = StringComparer.Ordinal;
 
-    private readonly Configuration configuration;
-
-    public ListingMapper(Configuration configuration)
-    {
-        this.configuration = configuration;
-    }
-
     public PfListingSnapshot? TryMap(IPartyFinderListing listing)
     {
         // Privacy guardrail: do not read listing.ContentId, listing.Name, listing.Description,
@@ -87,11 +80,8 @@ internal sealed class ListingMapper
         return (listing.DutyFinderSettings & flag) == flag;
     }
 
-    private string ResolveDataCenter()
+    private static string ResolveDataCenter()
     {
-        if (!string.IsNullOrWhiteSpace(configuration.DataCenterOverride))
-            return configuration.DataCenterOverride.Trim();
-
         try
         {
             var worldRef = PluginServices.ObjectTable.LocalPlayer?.CurrentWorld;
@@ -112,7 +102,7 @@ internal sealed class ListingMapper
 
     private static string DetectContentCategory(string contentName, DutyCategory partyFinderCategory)
     {
-        // Feasibility spike must replace/validate this with structured sheet mapping.
+        // TODO: replace/validate this heuristic with structured sheet mapping.
         if (contentName.Contains("Ultimate", StringComparison.OrdinalIgnoreCase))
             return "Ultimate";
 

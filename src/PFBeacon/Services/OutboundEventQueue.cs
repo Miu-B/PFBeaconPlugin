@@ -33,11 +33,19 @@ internal sealed class OutboundEventQueue : IDisposable
 
         if (listingEvent.EventType == PfListingEventType.ListingRefresh)
         {
-            EnqueueImmediate(new QueuedEvent(listingEvent, DateTimeOffset.UtcNow));
+            EnqueueImmediate(QueuedEvent.FromEvent(listingEvent, DateTimeOffset.UtcNow));
             return;
         }
 
         EnqueueDebounced(listingEvent);
+    }
+
+    public void EnqueueSnapshot(PfListingSnapshotComplete snapshot)
+    {
+        if (disposed)
+            return;
+
+        EnqueueImmediate(QueuedEvent.FromSnapshot(snapshot, DateTimeOffset.UtcNow));
     }
 
     public void Dispose()
@@ -70,12 +78,12 @@ internal sealed class OutboundEventQueue : IDisposable
         lock (gate)
         {
             if (debouncedEvents.TryGetValue(key, out var existing)
-                && existing.Event.EventType == PfListingEventType.ListingSeen)
+                && existing.Event?.EventType == PfListingEventType.ListingSeen)
             {
                 listingEvent = listingEvent with { EventType = PfListingEventType.ListingSeen };
             }
 
-            debouncedEvents[key] = new QueuedEvent(listingEvent, DateTimeOffset.UtcNow);
+            debouncedEvents[key] = QueuedEvent.FromEvent(listingEvent, DateTimeOffset.UtcNow);
 
             if (scheduledDebounceKeys.Add(key))
                 shouldSchedule = true;
@@ -113,12 +121,8 @@ internal sealed class OutboundEventQueue : IDisposable
         {
             if (queue.Count >= MaxQueuedEvents)
             {
-                if (!DropOldestRefreshLocked() && queuedEvent.Event.EventType == PfListingEventType.ListingRefresh)
-                {
-                    if (configuration.DebugLogging)
-                        PluginServices.Log.Debug("PFBeacon outbound queue full; dropped refresh for {CompositeKey}", queuedEvent.Event.Listing.CompositeKey);
+                if (!DropOldestRefreshLocked() && queuedEvent.IsRefresh)
                     return;
-                }
 
                 if (queue.Count >= MaxQueuedEvents)
                     DropOldestLocked();
@@ -164,9 +168,9 @@ internal sealed class OutboundEventQueue : IDisposable
             if (DateTimeOffset.UtcNow - queuedEvent.EnqueuedAt > MaxRetryAge)
             {
                 PluginServices.Log.Warning(
-                    "PFBeacon dropped {EventType} for {CompositeKey}: retry age exceeded",
-                    queuedEvent.Event.EventType,
-                    queuedEvent.Event.Listing.CompositeKey);
+                    "PFBeacon dropped {OutboundType} for {OutboundKey}: retry age exceeded",
+                    queuedEvent.OutboundType,
+                    queuedEvent.OutboundKey);
                 return;
             }
 
@@ -180,15 +184,12 @@ internal sealed class OutboundEventQueue : IDisposable
 
             try
             {
-                await botApiClient.SendEventAsync(queuedEvent.Event, cancellationToken).ConfigureAwait(false);
-
-                if (configuration.DebugLogging)
-                {
-                    PluginServices.Log.Information(
-                        "PFBeacon sent {EventType} for {CompositeKey}",
-                        queuedEvent.Event.EventType,
-                        queuedEvent.Event.Listing.CompositeKey);
-                }
+                if (queuedEvent.Event is { } listingEvent)
+                    await botApiClient.SendEventAsync(listingEvent, cancellationToken).ConfigureAwait(false);
+                else if (queuedEvent.Snapshot is { } snapshot)
+                    await botApiClient.SendSnapshotAsync(snapshot, cancellationToken).ConfigureAwait(false);
+                else
+                    return;
 
                 return;
             }
@@ -211,9 +212,9 @@ internal sealed class OutboundEventQueue : IDisposable
             {
                 PluginServices.Log.Warning(
                     ex,
-                    "PFBeacon bot rejected {EventType} for {CompositeKey}",
-                    queuedEvent.Event.EventType,
-                    queuedEvent.Event.Listing.CompositeKey);
+                    "PFBeacon bot rejected {OutboundType} for {OutboundKey}",
+                    queuedEvent.OutboundType,
+                    queuedEvent.OutboundKey);
                 return;
             }
             catch (BotApiSendException ex) when (ex.Kind == BotApiSendErrorKind.RateLimited)
@@ -226,14 +227,11 @@ internal sealed class OutboundEventQueue : IDisposable
                 attempt++;
                 var delay = TimeSpan.FromSeconds(Math.Min(30, Math.Pow(2, Math.Min(attempt, 5))));
 
-                if (configuration.DebugLogging)
-                {
-                    PluginServices.Log.Warning(
-                        ex,
-                        "PFBeacon send failed for {CompositeKey}; retrying in {DelaySeconds}s",
-                        queuedEvent.Event.Listing.CompositeKey,
-                        delay.TotalSeconds);
-                }
+                PluginServices.Log.Warning(
+                    ex,
+                    "PFBeacon send failed for {OutboundKey}; retrying in {DelaySeconds}s",
+                    queuedEvent.OutboundKey,
+                    delay.TotalSeconds);
 
                 await DelayBeforeRetryAsync(delay, cancellationToken).ConfigureAwait(false);
             }
@@ -253,7 +251,7 @@ internal sealed class OutboundEventQueue : IDisposable
 
     private bool DropOldestRefreshLocked()
     {
-        if (!queue.Any(item => item.Event.EventType == PfListingEventType.ListingRefresh))
+        if (!queue.Any(item => item.IsRefresh))
             return false;
 
         var rebuilt = new Queue<QueuedEvent>(queue.Count);
@@ -262,7 +260,7 @@ internal sealed class OutboundEventQueue : IDisposable
         while (queue.Count > 0)
         {
             var item = queue.Dequeue();
-            if (!dropped && item.Event.EventType == PfListingEventType.ListingRefresh)
+            if (!dropped && item.IsRefresh)
             {
                 dropped = true;
                 continue;
@@ -284,10 +282,23 @@ internal sealed class OutboundEventQueue : IDisposable
 
         var dropped = queue.Dequeue();
         PluginServices.Log.Warning(
-            "PFBeacon outbound queue full; dropped {EventType} for {CompositeKey}",
-            dropped.Event.EventType,
-            dropped.Event.Listing.CompositeKey);
+            "PFBeacon outbound queue full; dropped {OutboundType} for {OutboundKey}",
+            dropped.OutboundType,
+            dropped.OutboundKey);
     }
 
-    private sealed record QueuedEvent(PfListingEvent Event, DateTimeOffset EnqueuedAt);
+    private sealed record QueuedEvent(PfListingEvent? Event, PfListingSnapshotComplete? Snapshot, DateTimeOffset EnqueuedAt)
+    {
+        public static QueuedEvent FromEvent(PfListingEvent listingEvent, DateTimeOffset enqueuedAt)
+            => new(listingEvent, null, enqueuedAt);
+
+        public static QueuedEvent FromSnapshot(PfListingSnapshotComplete snapshot, DateTimeOffset enqueuedAt)
+            => new(null, snapshot, enqueuedAt);
+
+        public bool IsRefresh => Event?.EventType == PfListingEventType.ListingRefresh;
+
+        public string OutboundType => Event?.EventType.ToString() ?? "SnapshotComplete";
+
+        public string OutboundKey => Event?.Listing.CompositeKey ?? Snapshot?.DataCenter ?? "unknown";
+    }
 }

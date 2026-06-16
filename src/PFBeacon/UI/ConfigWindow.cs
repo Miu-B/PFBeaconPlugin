@@ -13,12 +13,12 @@ internal sealed class ConfigWindow : Window, IDisposable
     private bool testingConnection;
 
     public ConfigWindow(Configuration configuration, BotApiClient botApiClient)
-        : base("PFBeacon Configuration")
+        : base("PFBeacon")
     {
         this.configuration = configuration;
         this.botApiClient = botApiClient;
 
-        Size = new Vector2(560, 520);
+        Size = new Vector2(500, 260);
         SizeCondition = ImGuiCond.FirstUseEver;
     }
 
@@ -30,62 +30,29 @@ internal sealed class ConfigWindow : Window, IDisposable
     {
         DrawSetupInstructions();
         ImGui.Separator();
-
-        var enabled = configuration.Enabled;
-        if (ImGui.Checkbox("Enabled", ref enabled))
-        {
-            configuration.Enabled = enabled;
-            configuration.Save();
-        }
-
-        var loggingOnly = configuration.FeasibilityLoggingOnly;
-        if (ImGui.Checkbox("Feasibility logging only (no network sends)", ref loggingOnly))
-        {
-            configuration.FeasibilityLoggingOnly = loggingOnly;
-            configuration.Save();
-        }
-
-        ImGui.Spacing();
-        DrawConnectionSettings();
-        ImGui.Spacing();
-        DrawFilters();
-        ImGui.Spacing();
-        DrawTiming();
         ImGui.Spacing();
 
-        var debug = configuration.DebugLogging;
-        if (ImGui.Checkbox("Debug logging", ref debug))
-        {
-            configuration.DebugLogging = debug;
-            configuration.Save();
-        }
+        DrawSettings();
     }
 
     private static void DrawSetupInstructions()
     {
-        ImGui.TextWrapped("Setup:");
+        ImGui.TextWrapped("PFBeacon sends sanitized Party Finder observations to the official PFBeacon service. It never sends PF descriptions, recruiter names, player names, worlds, or Discord routing information.");
+        ImGui.Spacing();
         ImGui.BulletText("Run /pf register in Discord.");
         ImGui.BulletText("Paste the returned API token below.");
-        ImGui.BulletText("Set the bot API base URL, for example https://api.example.com.");
-        ImGui.BulletText("Submitted sanitized observations may update all Discord guilds subscribed to this bot service.");
-        ImGui.BulletText("Enable the plugin after Phase 0 feasibility checks are complete.");
+        ImGui.BulletText("PFBeacon only sees listings when you open or refresh the Party Finder window.");
+        ImGui.BulletText("Enable contribution when you want this client to help update PFBeacon alerts.");
+        ImGui.Spacing();
+        ImGui.TextWrapped($"Service: {BotApiClient.OfficialApiBaseUrl}");
     }
 
-    private void DrawConnectionSettings()
+    private void DrawSettings()
     {
-        ImGui.TextUnformatted("Connection");
-
-        var url = configuration.BotApiUrl;
-        ImGui.SetNextItemWidth(-1);
-        if (ImGui.InputText("Bot API URL", ref url, 512))
-        {
-            configuration.BotApiUrl = url;
-            configuration.Save();
-        }
-
+        ImGui.TextUnformatted("Token:");
         var token = configuration.UserApiToken;
         ImGui.SetNextItemWidth(-1);
-        if (ImGui.InputText("User API Token", ref token, 512, ImGuiInputTextFlags.Password))
+        if (ImGui.InputText("##api-token", ref token, 512, ImGuiInputTextFlags.Password))
         {
             configuration.UserApiToken = token;
             configuration.Save();
@@ -95,17 +62,16 @@ internal sealed class ConfigWindow : Window, IDisposable
         {
             configuration.UserApiToken = string.Empty;
             configuration.Save();
+            connectionStatus = string.Empty;
         }
 
         ImGui.SameLine();
-        var disableTestButton = testingConnection;
+        var disableTestButton = testingConnection || string.IsNullOrWhiteSpace(configuration.UserApiToken);
         if (disableTestButton)
             ImGui.BeginDisabled();
 
         if (ImGui.Button("Test connection"))
-        {
             _ = TestConnectionAsync();
-        }
 
         if (disableTestButton)
             ImGui.EndDisabled();
@@ -113,87 +79,11 @@ internal sealed class ConfigWindow : Window, IDisposable
         if (!string.IsNullOrWhiteSpace(connectionStatus))
             ImGui.TextWrapped(connectionStatus);
 
-        var dcOverride = configuration.DataCenterOverride;
-        ImGui.SetNextItemWidth(-1);
-        if (ImGui.InputText("Data center override", ref dcOverride, 64))
+        ImGui.Spacing();
+        var enabled = configuration.Enabled;
+        if (ImGui.Checkbox("Contribute sanitized PF observations", ref enabled))
         {
-            configuration.DataCenterOverride = dcOverride;
-            configuration.Save();
-        }
-    }
-
-    private void DrawFilters()
-    {
-        ImGui.TextUnformatted("Filters");
-
-        var requireMinIl = configuration.RequireMinimumItemLevel;
-        if (ImGui.Checkbox("Require Minimum Item Level", ref requireMinIl))
-        {
-            configuration.RequireMinimumItemLevel = requireMinIl;
-            configuration.Save();
-        }
-
-        var requireNoEcho = configuration.RequireNoEcho;
-        if (ImGui.Checkbox("Require No Echo / Silence Echo", ref requireNoEcho))
-        {
-            configuration.RequireNoEcho = requireNoEcho;
-            configuration.Save();
-        }
-
-        var extreme = configuration.IncludeExtreme;
-        if (ImGui.Checkbox("Extreme", ref extreme))
-        {
-            configuration.IncludeExtreme = extreme;
-            configuration.Save();
-        }
-
-        ImGui.SameLine();
-        var savage = configuration.IncludeSavage;
-        if (ImGui.Checkbox("Savage", ref savage))
-        {
-            configuration.IncludeSavage = savage;
-            configuration.Save();
-        }
-
-        ImGui.SameLine();
-        var ultimate = configuration.IncludeUltimate;
-        if (ImGui.Checkbox("Ultimate", ref ultimate))
-        {
-            configuration.IncludeUltimate = ultimate;
-            configuration.Save();
-        }
-
-        ImGui.SameLine();
-        var unreal = configuration.IncludeUnreal;
-        if (ImGui.Checkbox("Unreal", ref unreal))
-        {
-            configuration.IncludeUnreal = unreal;
-            configuration.Save();
-        }
-    }
-
-    private void DrawTiming()
-    {
-        ImGui.TextUnformatted("Timing");
-
-        var debounce = configuration.UpdateDebounceSeconds;
-        if (ImGui.InputInt("Update debounce seconds", ref debounce))
-        {
-            configuration.UpdateDebounceSeconds = debounce;
-            configuration.Save();
-        }
-
-        var refresh = configuration.RefreshSendMinIntervalSeconds;
-        if (ImGui.InputInt("Refresh send min interval seconds", ref refresh))
-        {
-            configuration.RefreshSendMinIntervalSeconds = refresh;
-            configuration.Save();
-        }
-
-        var prune = configuration.LocalCachePruneSeconds;
-        if (ImGui.InputInt("Local cache prune seconds", ref prune))
-        {
-            configuration.LocalCachePruneSeconds = prune;
+            configuration.Enabled = enabled;
             configuration.Save();
         }
     }

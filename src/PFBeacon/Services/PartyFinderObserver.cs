@@ -10,6 +10,10 @@ internal sealed class PartyFinderObserver : IDisposable
     private readonly ListingFilter filter;
     private readonly ListingCache listingCache;
     private readonly OutboundEventQueue outboundEventQueue;
+    private readonly object snapshotGate = new();
+    private readonly Dictionary<string, HashSet<string>> snapshotKeysByDataCenter = new(StringComparer.Ordinal);
+    private readonly CancellationTokenSource snapshotCts = new();
+    private int snapshotGeneration;
     private bool disposed;
 
     public PartyFinderObserver(
@@ -38,6 +42,8 @@ internal sealed class PartyFinderObserver : IDisposable
             return;
 
         PluginServices.PartyFinderGui.ReceiveListing -= OnReceiveListing;
+        snapshotCts.Cancel();
+        snapshotCts.Dispose();
         disposed = true;
     }
 
@@ -48,31 +54,20 @@ internal sealed class PartyFinderObserver : IDisposable
             if (!configuration.Enabled)
                 return;
 
-            if (configuration.DebugLogging)
-                LogSanitizedRawListing(listing, args);
-
             var snapshot = mapper.TryMap(listing);
             if (snapshot is null)
                 return;
 
-            if (configuration.DebugLogging)
-                LogSanitizedObservation(snapshot, "observed");
+            var isMatch = args.Visible && filter.IsMatch(snapshot);
+            if (isMatch)
+                RecordSnapshotObservation(snapshot.DataCenter, snapshot.CompositeKey);
 
-            if (!filter.IsMatch(snapshot))
-                return;
-
-            LogSanitizedObservation(snapshot, "matched");
-
-            if (configuration.FeasibilityLoggingOnly)
+            if (!isMatch)
                 return;
 
             var listingEvent = listingCache.Observe(snapshot);
             if (listingEvent is null)
-            {
-                if (configuration.DebugLogging)
-                    PluginServices.Log.Debug("PFBeacon suppressed duplicate refresh for {CompositeKey}", snapshot.CompositeKey);
                 return;
-            }
 
             outboundEventQueue.Enqueue(listingEvent);
         }
@@ -82,68 +77,63 @@ internal sealed class PartyFinderObserver : IDisposable
         }
     }
 
-    private static void LogSanitizedRawListing(IPartyFinderListing listing, IPartyFinderListingEventArgs args)
+    private void RecordSnapshotObservation(string dataCenter, string activeCompositeKey)
     {
-        var dutyRowId = listing.Duty.IsValid ? listing.Duty.RowId : (uint)listing.RawDuty;
-        var dutyName = listing.Duty.IsValid ? listing.Duty.Value.Name.ToString() : "<invalid-duty>";
-        var acceptingJobCounts = string.Join(",", listing.Slots.Select(slot => slot.Accepting.Count));
+        if (string.IsNullOrWhiteSpace(dataCenter) || string.IsNullOrWhiteSpace(activeCompositeKey))
+            return;
 
-        var hasMinimumIl = (listing.DutyFinderSettings & DutyFinderSettingsFlags.MinimumIL) == DutyFinderSettingsFlags.MinimumIL;
-        var hasSilenceEcho = (listing.DutyFinderSettings & DutyFinderSettingsFlags.SilenceEcho) == DutyFinderSettingsFlags.SilenceEcho;
+        int generation;
+        lock (snapshotGate)
+        {
+            if (!snapshotKeysByDataCenter.TryGetValue(dataCenter, out var activeKeys))
+            {
+                activeKeys = new HashSet<string>(StringComparer.Ordinal);
+                snapshotKeysByDataCenter[dataCenter] = activeKeys;
+            }
 
-        PluginServices.Log.Information(
-            "PFBeacon feasibility raw: listingId={ListingId} batch={BatchNumber} visible={Visible} rawDuty={RawDuty} dutyRow={DutyRowId} dutyValid={DutyValid} dutyName={DutyName} pfCategory={PfCategory} dutyType={DutyType} dutyFinderSettings={DutyFinderSettings} hasMinimumIl={HasMinimumIl} hasSilenceEcho={HasSilenceEcho} slotsAvailable={SlotsAvailable} slotsFilled={SlotsFilled} parties={Parties} numericMinIl={NumericMinIl} slotCount={SlotCount} acceptingJobCounts=[{AcceptingJobCounts}] jobsPresentCount={JobsPresentCount} rawJobsPresentCount={RawJobsPresentCount}",
-            listing.Id,
-            args.BatchNumber,
-            args.Visible,
-            listing.RawDuty,
-            dutyRowId,
-            listing.Duty.IsValid,
-            dutyName,
-            listing.Category,
-            listing.DutyType,
-            listing.DutyFinderSettings,
-            hasMinimumIl,
-            hasSilenceEcho,
-            listing.SlotsAvailable,
-            listing.SlotsFilled,
-            listing.Parties,
-            listing.MinimumItemLevel,
-            listing.Slots.Count,
-            acceptingJobCounts,
-            listing.JobsPresent.Count,
-            listing.RawJobsPresent.Count);
+            activeKeys.Add(activeCompositeKey);
+
+            generation = ++snapshotGeneration;
+        }
+
+        _ = FlushSnapshotAfterDelayAsync(generation);
     }
 
-    private static void LogSanitizedObservation(PfListingSnapshot snapshot, string state)
+    private async Task FlushSnapshotAfterDelayAsync(int generation)
     {
-        PluginServices.Log.Information(
-            "PFBeacon {State}: key={CompositeKey} listingId={ListingId} mappedDataCenter={DataCenter} duty={ContentId} content={ContentName} category={Category} mine={Mine} noEcho={NoEcho} maxPlayers={MaxPlayers} openSlots={OpenSlots} filledSlots={FilledSlots} openSummary={OpenSummary} filledSummary={FilledSummary} hash={ContentHash}",
-            state,
-            snapshot.CompositeKey,
-            snapshot.ListingId,
-            snapshot.DataCenter,
-            snapshot.ContentId,
-            snapshot.ContentName,
-            snapshot.ContentCategory,
-            snapshot.IsMinimumItemLevel,
-            snapshot.IsNoEcho,
-            snapshot.MaxPlayers,
-            snapshot.OpenSlots.Count,
-            snapshot.FilledSlots.Count,
-            FormatSlots(snapshot.OpenSlots),
-            FormatSlots(snapshot.FilledSlots),
-            snapshot.ContentHash);
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(configuration.SnapshotDebounceSeconds), snapshotCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        Dictionary<string, string[]> snapshots;
+        lock (snapshotGate)
+        {
+            if (generation != snapshotGeneration || snapshotKeysByDataCenter.Count == 0)
+                return;
+
+            snapshots = snapshotKeysByDataCenter.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value.OrderBy(key => key, StringComparer.Ordinal).ToArray(),
+                StringComparer.Ordinal);
+            snapshotKeysByDataCenter.Clear();
+        }
+
+        foreach (var (dataCenter, activeKeys) in snapshots)
+            EnqueueCompleteSnapshot(dataCenter, activeKeys);
     }
 
-    private static string FormatSlots(IReadOnlyList<SlotSummary> slots)
+    private void EnqueueCompleteSnapshot(string dataCenter, IReadOnlyList<string> activeKeys)
     {
-        if (slots.Count == 0)
-            return "None";
-
-        return string.Join(", ", slots.Select(slot =>
-            slot.Job is null
-                ? $"{slot.Count}x {slot.Role}"
-                : $"{slot.Count}x {slot.Role} ({slot.Job})"));
+        outboundEventQueue.EnqueueSnapshot(new PfListingSnapshotComplete
+        {
+            DataCenter = dataCenter,
+            ActiveCompositeKeys = activeKeys,
+            ObservedAtUtc = DateTimeOffset.UtcNow,
+        });
     }
 }

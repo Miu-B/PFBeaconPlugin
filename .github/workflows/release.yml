@@ -1,0 +1,104 @@
+name: Release
+run-name: Release ${{ github.ref_name }}
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build, e.g. 0.1.0.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+
+    env:
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            $tag = 'v${{ inputs.version }}'
+            $version = '${{ inputs.version }}'
+          } else {
+            $tag = '${{ github.ref_name }}'
+            $version = $tag -replace '^v', ''
+          }
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Install .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Setup Dalamud
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile ./latest.zip
+          Expand-Archive -Path ./latest.zip "$env:AppData\XIVLauncher\addon\Hooks\dev" -Force
+
+      - name: Restore
+        run: dotnet restore --verbosity normal
+
+      - name: Build Release
+        run: dotnet build --no-restore --configuration Release --verbosity normal -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Prepare release asset
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          Copy-Item src/PFBeacon/bin/Release/PFBeacon/latest.zip artifacts/PFBeacon.zip
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: PFBeacon ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: artifacts/PFBeacon.zip
+          body: |
+            ## Installation
+
+            Add this custom plugin repository in Dalamud:
+
+            ```text
+            https://raw.githubusercontent.com/Miu-B/PFBeaconPlugin/main/repo.json
+            ```
+
+            Or download `PFBeacon.zip`, extract it, and add the extracted `PFBeacon.dll` as a Dalamud dev plugin.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Dalamud repository manifest
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
+
+          $tag = '${{ steps.version.outputs.tag }}'
+          $version = '${{ steps.version.outputs.version }}'
+          $content = Get-Content ./base_repo.json -Raw
+          $content = $content.Replace('__TAG__', $tag).Replace('__VERSION__', $version)
+          Set-Content -Path ./repo.json -Value $content -NoNewline
+
+          git add repo.json
+          git commit -m "chore: update plugin repo manifest for $tag" || exit 0
+          git push origin main
