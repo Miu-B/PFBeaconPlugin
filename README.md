@@ -1,6 +1,8 @@
 # PFBeacon
 
-<img src="src/PFBeacon/PFBeacon.png" alt="PFBeacon icon" width="128" />
+<p align="center">
+  <img src="src/PFBeacon/PFBeacon.png" alt="PFBeacon icon" width="256" />
+</p>
 
 Finding MINE Party Finder groups is mostly a timing problem. The listing you care about might appear while you're crafting, in a duty, alt-tabbed, or simply looking at the wrong Discord channel.
 
