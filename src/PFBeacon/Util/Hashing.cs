@@ -38,6 +38,7 @@ internal static class Hashing
         return slots
             .OrderBy(slot => slot.Role, StringComparer.Ordinal)
             .ThenBy(slot => slot.Job ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(slot => slot.AcceptedRoles is null ? string.Empty : string.Join(',', slot.AcceptedRoles))
             .ThenBy(slot => slot.Count)
             .ToArray();
     }

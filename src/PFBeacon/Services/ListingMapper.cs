@@ -136,7 +136,15 @@ internal sealed class ListingMapper
                 .ToArray();
 
             if (acceptedJobs.Length == 0)
+            {
+                summaries.Add(new SlotSummary
+                {
+                    Role = "Unknown",
+                    Job = null,
+                    Count = 1,
+                });
                 continue;
+            }
 
             if (acceptedJobs.Length == 1)
             {
@@ -150,11 +158,13 @@ internal sealed class ListingMapper
             }
 
             var roles = acceptedJobs.Select(RoleFromJobAbbrev).Distinct(Ordinal).ToArray();
+            var acceptedRoles = BuildAcceptedRoleGroups(roles);
             summaries.Add(new SlotSummary
             {
                 Role = GeneralizeAcceptedRoles(roles),
                 Job = null,
                 Count = 1,
+                AcceptedRoles = acceptedRoles.Count > 1 ? acceptedRoles : null,
             });
         }
 
@@ -192,16 +202,59 @@ internal sealed class ListingMapper
     private static IReadOnlyList<SlotSummary> CollapseSlots(IEnumerable<SlotSummary> slots)
     {
         return slots
-            .GroupBy(slot => new { slot.Role, slot.Job })
+            .GroupBy(slot => new { slot.Role, slot.Job, AcceptedRoles = AcceptedRolesKey(slot.AcceptedRoles) })
             .Select(group => new SlotSummary
             {
                 Role = group.Key.Role,
                 Job = group.Key.Job,
                 Count = group.Sum(slot => slot.Count),
+                AcceptedRoles = ParseAcceptedRolesKey(group.Key.AcceptedRoles),
             })
             .OrderBy(slot => slot.Role, Ordinal)
             .ThenBy(slot => slot.Job ?? string.Empty, Ordinal)
             .ToArray();
+    }
+
+    private static IReadOnlyList<string> BuildAcceptedRoleGroups(IEnumerable<string> roles)
+    {
+        return roles
+            .Select(CoarsenAcceptedRole)
+            .Where(role => role is not "Unknown")
+            .Distinct(Ordinal)
+            .OrderBy(AcceptedRoleOrder)
+            .ToArray();
+    }
+
+    private static string CoarsenAcceptedRole(string role)
+    {
+        return IsDpsRole(role) ? "DPS" : role;
+    }
+
+    private static int AcceptedRoleOrder(string role)
+    {
+        return role switch
+        {
+            "Tank" => 10,
+            "Healer" => 20,
+            "DPS" => 30,
+            _ => 99,
+        };
+    }
+
+    private static string AcceptedRolesKey(IReadOnlyList<string>? acceptedRoles)
+    {
+        if (acceptedRoles is null || acceptedRoles.Count == 0)
+            return string.Empty;
+
+        return string.Join(",", acceptedRoles.OrderBy(AcceptedRoleOrder).ThenBy(role => role, Ordinal));
+    }
+
+    private static IReadOnlyList<string>? ParseAcceptedRolesKey(string acceptedRoles)
+    {
+        if (string.IsNullOrWhiteSpace(acceptedRoles))
+            return null;
+
+        return acceptedRoles.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
     private static string GeneralizeAcceptedRoles(IReadOnlyCollection<string> roles)
