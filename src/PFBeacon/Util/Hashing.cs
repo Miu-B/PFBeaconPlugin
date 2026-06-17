@@ -23,6 +23,7 @@ internal static class Hashing
             snapshot.ContentCategory,
             snapshot.IsMinimumItemLevel,
             snapshot.IsNoEcho,
+            snapshot.IsPrivate,
             snapshot.MaxPlayers,
             OpenSlots = NormalizeSlots(snapshot.OpenSlots),
             FilledSlots = NormalizeSlots(snapshot.FilledSlots),

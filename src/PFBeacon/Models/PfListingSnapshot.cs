@@ -16,6 +16,7 @@ public sealed record PfListingSnapshot
 
     public required bool IsMinimumItemLevel { get; init; }
     public required bool IsNoEcho { get; init; }
+    public required bool IsPrivate { get; init; }
     public required int MaxPlayers { get; init; }
 
     public required IReadOnlyList<SlotSummary> OpenSlots { get; init; }

@@ -38,6 +38,7 @@ internal sealed class ListingMapper
             ContentCategory = category,
             IsMinimumItemLevel = HasDutyFinderSetting(listing, DutyFinderSettingsFlags.MinimumIL),
             IsNoEcho = HasDutyFinderSetting(listing, DutyFinderSettingsFlags.SilenceEcho),
+            IsPrivate = HasSearchAreaFlag(listing, SearchAreaFlags.Private),
             MaxPlayers = maxPlayers,
             OpenSlots = BuildOpenSlotSummaries(listing),
             FilledSlots = BuildFilledSlotSummaries(listing),
@@ -78,6 +79,11 @@ internal sealed class ListingMapper
     private static bool HasDutyFinderSetting(IPartyFinderListing listing, DutyFinderSettingsFlags flag)
     {
         return (listing.DutyFinderSettings & flag) == flag;
+    }
+
+    private static bool HasSearchAreaFlag(IPartyFinderListing listing, SearchAreaFlags flag)
+    {
+        return (listing.SearchArea & flag) == flag;
     }
 
     private static string ResolveDataCenter()
