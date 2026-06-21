@@ -19,6 +19,7 @@ internal static class Hashing
         {
             snapshot.CompositeKey,
             snapshot.ContentId,
+            snapshot.ContentLevel,
             snapshot.ContentName,
             snapshot.ContentCategory,
             snapshot.IsMinimumItemLevel,

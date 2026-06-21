@@ -34,6 +34,7 @@ internal sealed class ListingMapper
             ListingId = listingId,
             DataCenter = dataCenter,
             ContentId = dutyRowId,
+            ContentLevel = GetContentLevel(listing),
             ContentName = contentName,
             ContentCategory = category,
             IsMinimumItemLevel = HasDutyFinderSetting(listing, DutyFinderSettingsFlags.MinimumIL),
@@ -63,6 +64,14 @@ internal sealed class ListingMapper
             return string.Empty;
 
         return listing.Duty.Value.Name.ToString();
+    }
+
+    private static int GetContentLevel(IPartyFinderListing listing)
+    {
+        if (listing.Duty.IsValid && listing.Duty.Value.ClassJobLevelRequired > 0)
+            return listing.Duty.Value.ClassJobLevelRequired;
+
+        return 0;
     }
 
     private static int GetMaxPlayers(IPartyFinderListing listing)

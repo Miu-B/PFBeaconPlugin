@@ -10,6 +10,7 @@ public sealed record PfListingSnapshot
     /// Duty/content-finder row ID. Never populate from Dalamud IPartyFinderListing.ContentId.
     /// </summary>
     public required uint ContentId { get; init; }
+    public required int ContentLevel { get; init; }
 
     public required string ContentName { get; init; }
     public required string ContentCategory { get; init; }

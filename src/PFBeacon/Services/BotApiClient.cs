@@ -163,7 +163,7 @@ internal sealed class BotApiClient : IDisposable
     {
         return new
         {
-            PluginVersion = typeof(BotApiClient).Assembly.GetName().Version?.ToString() ?? "0.1.0",
+            PluginVersion = typeof(BotApiClient).Assembly.GetName().Version?.ToString() ?? "0.1.3.0",
             DalamudApiLevel = "current",
             configuration.ClientInstanceId,
         };
