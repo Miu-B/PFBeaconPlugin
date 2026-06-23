@@ -18,6 +18,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
+    [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
 
     private const string CommandName = "/pfbeacon";
 
@@ -26,6 +27,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly OutboundEventQueue outboundEventQueue;
     private readonly PartyFinderObserver partyFinderObserver;
     private readonly ConfigWindow configWindow;
+    private GlobalFeedPoller? globalFeedPoller;
 
     public Plugin()
     {
@@ -52,6 +54,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginServices.PluginInterface.UiBuilder.OpenConfigUi += ToggleConfigUi;
 
         partyFinderObserver.Start();
+        SyncGlobalFeedPoller();
         PluginServices.Log.Information("PFBeacon loaded");
     }
 
@@ -65,6 +68,8 @@ public sealed class Plugin : IDalamudPlugin
 
         windowSystem.RemoveAllWindows();
         configWindow.Dispose();
+        globalFeedPoller?.Dispose();
+        globalFeedPoller = null;
         partyFinderObserver.Dispose();
         outboundEventQueue.Dispose();
         botApiClient.Dispose();
@@ -76,8 +81,9 @@ public sealed class Plugin : IDalamudPlugin
         if (trimmed.Equals("status", StringComparison.OrdinalIgnoreCase))
         {
             PluginServices.Log.Information(
-                "PFBeacon status: Enabled={Enabled}, HasToken={HasToken}, Service={Service}",
+                "PFBeacon status: Enabled={Enabled}, GlobalAlerts={GlobalAlerts}, HasToken={HasToken}, Service={Service}",
                 Configuration.Enabled,
+                Configuration.GlobalChatAlertsEnabled,
                 !string.IsNullOrWhiteSpace(Configuration.UserApiToken),
                 BotApiClient.OfficialApiBaseUrl);
             return;
@@ -93,6 +99,22 @@ public sealed class Plugin : IDalamudPlugin
 
     private void DrawUi()
     {
+        SyncGlobalFeedPoller();
         windowSystem.Draw();
+    }
+
+    private void SyncGlobalFeedPoller()
+    {
+        if (Configuration.GlobalChatAlertsEnabled)
+        {
+            globalFeedPoller ??= new GlobalFeedPoller(Configuration, botApiClient);
+            return;
+        }
+
+        if (globalFeedPoller is null)
+            return;
+
+        globalFeedPoller.Dispose();
+        globalFeedPoller = null;
     }
 }

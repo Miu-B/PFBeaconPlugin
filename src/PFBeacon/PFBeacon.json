@@ -2,7 +2,7 @@
   "Author": "Miu-B",
   "Name": "PFBeacon",
   "Punchline": "Sanitized MINE Party Finder alerts for Discord.",
-  "Description": "Observes Party Finder listings, filters for qualifying MINE raid listings, and sends sanitized observations to the official PFBeacon service. Does not send PF descriptions, player names, recruiter names, worlds, or Discord routing data. Use /pfbeacon to configure.",
+  "Description": "Observes Party Finder listings, filters for qualifying MINE raid listings, sends sanitized observations to the official PFBeacon service, and can show spoiler-safe local alerts from the global feed. Does not send PF descriptions, player names, recruiter names, worlds, or Discord routing data. Use /pfbeacon to configure.",
   "ApplicableVersion": "any",
   "RepoUrl": "https://github.com/Miu-B/PFBeaconPlugin",
   "IconUrl": "https://raw.githubusercontent.com/Miu-B/PFBeaconPlugin/main/src/PFBeacon/PFBeacon.png",

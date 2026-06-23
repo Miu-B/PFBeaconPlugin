@@ -13,4 +13,5 @@ internal static class PluginServices
     internal static IObjectTable ObjectTable => Plugin.ObjectTable;
     internal static IFramework Framework => Plugin.Framework;
     internal static ICommandManager CommandManager => Plugin.CommandManager;
+    internal static IChatGui ChatGui => Plugin.ChatGui;
 }

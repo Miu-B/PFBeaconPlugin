@@ -16,6 +16,7 @@ The goal is simple: help people find old-content groups faster, while keeping de
 * Filters for 8-player Raid, Extreme, Savage, Ultimate, and Unreal listings
 * Requires Minimum Item Level and No Echo
 * Sends sanitized observations to the PFBeacon service
+* Optionally polls the global PFBeacon feed for local in-game chat alerts
 * Helps the Discord bot keep alerts active, stale, or deleted as PF listings change
 
 ## Privacy
@@ -35,11 +36,15 @@ PFBeacon does **not** send:
 
 Submitted observations may update alert channels in all Discord guilds that have opted into the same PFBeacon bot service.
 
+For in-game global feed alerts, PFBeacon receives only sanitized display fields. Known MSQ-spoiler duties are redacted by the server before the plugin receives them.
+
 ## Important behavior
 
 PFBeacon does **not** continuously scan Party Finder in the background and does **not** query Square Enix servers on its own. It only sees listings when you open the Party Finder window, change filters, switch tabs, or refresh the list in-game.
 
-So if nobody with the plugin opens or refreshes the Party Finder window, PFBeacon has nothing new to send.
+The optional in-game global feed alert feature is different: it makes one batched, authenticated request to the PFBeacon service every few minutes for your selected data centers, then prints local system-chat alerts for new/updated sanitized feed items.
+
+So if nobody with the plugin opens or refreshes the Party Finder window, PFBeacon has nothing new to send to the global feed.
 
 ## Requirements
 
@@ -87,8 +92,9 @@ Dalamud may show the usual warning for third-party repositories. That's expected
 4. Paste the token into the **Token** field
 5. Click **Test connection**
 6. Enable **Contribute sanitized PF observations**
+7. Optional: enable **Show local chat alerts from the global PFBeacon feed** and choose interested data centers, e.g. Light and Chaos
 
-That's it. When you open or refresh Party Finder and qualifying MINE listings are visible, the plugin contributes sanitized observations to PFBeacon.
+When you open or refresh Party Finder and qualifying MINE listings are visible, the plugin contributes sanitized observations to PFBeacon. If global feed alerts are enabled, the plugin also polls PFBeacon with jitter/backoff and prints local spoiler-safe system-chat alerts such as needed roles/jobs.
 
 ## Commands
 

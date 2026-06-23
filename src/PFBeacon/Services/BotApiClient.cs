@@ -35,6 +35,7 @@ internal sealed class BotApiClient : IDisposable
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
         WriteIndented = false,
     };
 
@@ -83,6 +84,48 @@ internal sealed class BotApiClient : IDisposable
         await SendJsonAsync("/api/v1/listings/snapshot", payload, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<ListingFeedResponse> GetListingFeedAsync(
+        IReadOnlyCollection<string> dataCenters,
+        IReadOnlyCollection<string> categories,
+        string? cursor,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (!HasMinimumConfiguration())
+            throw new BotApiSendException(BotApiSendErrorKind.NotConfigured, "API token is required.");
+
+        if (dataCenters.Count == 0)
+            return new ListingFeedResponse();
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, BuildFeedUri(dataCenters, categories, cursor, limit));
+        AddAuthorization(request);
+
+        using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (response.IsSuccessStatusCode)
+        {
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            var feed = await JsonSerializer.DeserializeAsync<ListingFeedResponse>(stream, JsonOptions, cancellationToken).ConfigureAwait(false);
+            if (feed is null)
+                throw new BotApiSendException(BotApiSendErrorKind.Transient, "PFBeacon bot service returned an empty feed response.");
+
+            return feed;
+        }
+
+        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            throw new BotApiSendException(BotApiSendErrorKind.InvalidToken, "PFBeacon token was rejected by the bot service.");
+
+        if ((int)response.StatusCode == 429)
+            throw new BotApiSendException(
+                BotApiSendErrorKind.RateLimited,
+                "PFBeacon bot service rate limit exceeded.",
+                ParseRetryAfter(response));
+
+        if ((int)response.StatusCode >= 500)
+            throw new BotApiSendException(BotApiSendErrorKind.Transient, $"PFBeacon bot service failed with {(int)response.StatusCode}.");
+
+        throw new BotApiSendException(BotApiSendErrorKind.Rejected, $"PFBeacon bot service rejected the feed request with {(int)response.StatusCode}.");
+    }
+
     public void Dispose()
     {
         httpClient.Dispose();
@@ -126,6 +169,23 @@ internal sealed class BotApiClient : IDisposable
     private static Uri BuildUri(string path)
     {
         return new Uri($"{OfficialApiBaseUrl}{path}");
+    }
+
+    private static Uri BuildFeedUri(IReadOnlyCollection<string> dataCenters, IReadOnlyCollection<string> categories, string? cursor, int limit)
+    {
+        var query = new List<string>
+        {
+            $"dataCenters={Uri.EscapeDataString(string.Join(',', dataCenters))}",
+            $"limit={Math.Clamp(limit, 1, 50)}",
+        };
+
+        if (categories.Count > 0)
+            query.Add($"categories={Uri.EscapeDataString(string.Join(',', categories))}");
+
+        if (!string.IsNullOrWhiteSpace(cursor))
+            query.Add($"cursor={Uri.EscapeDataString(cursor)}");
+
+        return BuildUri($"/api/v1/listings/feed?{string.Join('&', query)}");
     }
 
     private void AddAuthorization(HttpRequestMessage request)

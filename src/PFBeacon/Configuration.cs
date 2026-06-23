@@ -5,11 +5,30 @@ namespace PFBeacon;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 1;
+    public static readonly string[] KnownDataCenters =
+    {
+        "Aether",
+        "Primal",
+        "Crystal",
+        "Dynamis",
+        "Chaos",
+        "Light",
+        "Elemental",
+        "Gaia",
+        "Mana",
+        "Meteor",
+        "Materia",
+    };
+
+    public int Version { get; set; } = 2;
 
     public bool Enabled { get; set; }
     public string UserApiToken { get; set; } = string.Empty;
     public string ClientInstanceId { get; set; } = Guid.NewGuid().ToString("N");
+
+    public bool GlobalChatAlertsEnabled { get; set; }
+    public List<string> GlobalAlertDataCenters { get; set; } = new() { "Light", "Chaos" };
+    public int GlobalAlertPollIntervalSeconds { get; set; } = 180;
 
     public bool RequireMinimumItemLevel { get; set; } = true;
     public bool RequireNoEcho { get; set; } = true;
@@ -31,11 +50,36 @@ public sealed class Configuration : IPluginConfiguration
             ClientInstanceId = Guid.NewGuid().ToString("N");
 
         UserApiToken = UserApiToken.Trim();
+        GlobalAlertDataCenters ??= new List<string> { "Light", "Chaos" };
+
+        GlobalAlertDataCenters = GlobalAlertDataCenters
+            .Where(dataCenter => KnownDataCenters.Contains(dataCenter, StringComparer.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .Take(4)
+            .ToList();
 
         UpdateDebounceSeconds = Math.Clamp(UpdateDebounceSeconds, 1, 60);
         SnapshotDebounceSeconds = Math.Clamp(SnapshotDebounceSeconds, 1, 30);
         RefreshSendMinIntervalSeconds = Math.Clamp(RefreshSendMinIntervalSeconds, 5, 300);
         LocalCachePruneSeconds = Math.Clamp(LocalCachePruneSeconds, 60, 3600);
+        GlobalAlertPollIntervalSeconds = Math.Clamp(GlobalAlertPollIntervalSeconds, 120, 900);
+    }
+
+    public IReadOnlyList<string> GetIncludedContentCategories()
+    {
+        var categories = new List<string>();
+        if (IncludeRaid)
+            categories.Add("Raid");
+        if (IncludeExtreme)
+            categories.Add("Extreme");
+        if (IncludeSavage)
+            categories.Add("Savage");
+        if (IncludeUltimate)
+            categories.Add("Ultimate");
+        if (IncludeUnreal)
+            categories.Add("Unreal");
+
+        return categories;
     }
 
     public void Save()
