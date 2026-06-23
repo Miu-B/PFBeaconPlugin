@@ -41,8 +41,8 @@ internal sealed class ListingMapper
             IsNoEcho = HasDutyFinderSetting(listing, DutyFinderSettingsFlags.SilenceEcho),
             IsPrivate = HasSearchAreaFlag(listing, SearchAreaFlags.Private),
             MaxPlayers = maxPlayers,
-            OpenSlots = BuildOpenSlotSummaries(listing),
-            FilledSlots = BuildFilledSlotSummaries(listing),
+            OpenSlots = BuildOpenSlotSummaries(listing, maxPlayers),
+            FilledSlots = BuildFilledSlotSummaries(listing, maxPlayers),
             ObservedAtUtc = DateTimeOffset.UtcNow,
             ContentHash = string.Empty,
         };
@@ -140,59 +140,83 @@ internal sealed class ListingMapper
         return "Unknown";
     }
 
-    private static IReadOnlyList<SlotSummary> BuildOpenSlotSummaries(IPartyFinderListing listing)
+    private static IReadOnlyList<SlotSummary> BuildOpenSlotSummaries(IPartyFinderListing listing, int maxPlayers)
     {
+        // PartyFinderSlot order is the PF slot layout, not "filled slots first". Derive openings by
+        // consuming slots that can explain the currently-present jobs, then summarize the remainder.
+        var candidates = BuildSlotCandidates(listing, maxPlayers);
+        var filledJobs = GetPresentJobAbbrevs(listing).ToArray();
+        var filledSlotCount = GetFilledSlotCount(listing, filledJobs.Length, maxPlayers);
+        var consumedSlots = new bool[candidates.Count];
+
+        foreach (var slotIndex in MatchFilledJobsToSlots(candidates, filledJobs))
+            consumedSlots[slotIndex] = true;
+
+        ConsumeFallbackFilledSlots(candidates, consumedSlots, filledSlotCount - consumedSlots.Count(consumed => consumed));
+
+        var openSlotCount = Math.Max(0, candidates.Count - filledSlotCount);
+        var summaries = candidates
+            .Where((_, index) => !consumedSlots[index])
+            .Take(openSlotCount)
+            .Select(candidate => BuildOpenSlotSummary(candidate.AcceptedJobs))
+            .ToList();
+
+        while (summaries.Count < openSlotCount)
+            summaries.Add(BuildUnknownSlotSummary());
+
+        return CollapseSlots(summaries);
+    }
+
+    private static IReadOnlyList<SlotSummary> BuildFilledSlotSummaries(IPartyFinderListing listing, int maxPlayers)
+    {
+        var filledJobs = GetPresentJobAbbrevs(listing).ToArray();
+        var filledSlotCount = GetFilledSlotCount(listing, filledJobs.Length, maxPlayers);
         var summaries = new List<SlotSummary>();
 
-        foreach (var slot in listing.Slots.Skip(Math.Min((int)listing.SlotsFilled, listing.Slots.Count)))
+        foreach (var abbrev in filledJobs)
         {
-            var acceptedJobs = slot.Accepting
-                .Select(MapJobFlagToAbbrev)
-                .Where(job => job is not null)
-                .Select(job => job!)
-                .Distinct(Ordinal)
-                .ToArray();
-
-            if (acceptedJobs.Length == 0)
-            {
-                summaries.Add(new SlotSummary
-                {
-                    Role = "Unknown",
-                    Job = null,
-                    Count = 1,
-                });
-                continue;
-            }
-
-            if (acceptedJobs.Length == 1)
-            {
-                summaries.Add(new SlotSummary
-                {
-                    Role = RoleFromJobAbbrev(acceptedJobs[0]),
-                    Job = acceptedJobs[0],
-                    Count = 1,
-                });
-                continue;
-            }
-
-            var roles = acceptedJobs.Select(RoleFromJobAbbrev).Distinct(Ordinal).ToArray();
-            var acceptedRoles = BuildAcceptedRoleGroups(roles);
             summaries.Add(new SlotSummary
             {
-                Role = GeneralizeAcceptedRoles(roles),
-                Job = null,
+                Role = RoleFromJobAbbrev(abbrev),
+                Job = abbrev,
                 Count = 1,
-                AcceptedRoles = acceptedRoles.Count > 1 ? acceptedRoles : null,
+            });
+        }
+
+        var unknownFilledCount = filledSlotCount - summaries.Count;
+        if (unknownFilledCount > 0)
+        {
+            summaries.Add(new SlotSummary
+            {
+                Role = "Unknown",
+                Job = null,
+                Count = unknownFilledCount,
             });
         }
 
         return CollapseSlots(summaries);
     }
 
-    private static IReadOnlyList<SlotSummary> BuildFilledSlotSummaries(IPartyFinderListing listing)
+    private static IReadOnlyList<SlotCandidate> BuildSlotCandidates(IPartyFinderListing listing, int maxPlayers)
     {
-        var summaries = new List<SlotSummary>();
+        var slotLimit = Math.Max(0, Math.Min(maxPlayers, listing.Slots.Count));
 
+        return listing.Slots
+            .Take(slotLimit)
+            .Select((slot, index) => new SlotCandidate(
+                index,
+                slot.Accepting
+                    .Select(MapJobFlagToAbbrev)
+                    .Where(job => job is not null)
+                    .Select(job => job!)
+                    .Select(job => job.ToUpperInvariant())
+                    .Distinct(Ordinal)
+                    .ToArray()))
+            .ToArray();
+    }
+
+    private static IEnumerable<string> GetPresentJobAbbrevs(IPartyFinderListing listing)
+    {
         foreach (var jobRef in listing.JobsPresent)
         {
             if (!jobRef.IsValid)
@@ -202,19 +226,148 @@ internal sealed class ListingMapper
             if (string.IsNullOrWhiteSpace(abbrev))
                 continue;
 
-            var role = RoleFromJobAbbrev(abbrev);
-            if (role == "Unknown")
+            abbrev = abbrev.Trim().ToUpperInvariant();
+            if (RoleFromJobAbbrev(abbrev) == "Unknown")
                 continue;
 
-            summaries.Add(new SlotSummary
+            yield return abbrev;
+        }
+    }
+
+    private static int GetFilledSlotCount(IPartyFinderListing listing, int knownFilledJobCount, int maxPlayers)
+    {
+        var slotCapacity = Math.Max(0, Math.Min(maxPlayers, listing.Slots.Count));
+        var reportedFilledSlots = Math.Max(0, (int)listing.SlotsFilled);
+        var filledSlotCount = Math.Max(knownFilledJobCount, reportedFilledSlots);
+
+        return Math.Min(filledSlotCount, slotCapacity);
+    }
+
+    private static IReadOnlyList<int> MatchFilledJobsToSlots(
+        IReadOnlyList<SlotCandidate> candidates,
+        IReadOnlyList<string> filledJobs)
+    {
+        if (candidates.Count == 0 || filledJobs.Count == 0)
+            return Array.Empty<int>();
+
+        var jobs = filledJobs
+            .Select(job => job.ToUpperInvariant())
+            .OrderBy(job => candidates.Count(candidate => candidate.Accepts(job)))
+            .ThenBy(job => job, Ordinal)
+            .ToArray();
+
+        var used = new bool[candidates.Count];
+        var current = new List<int>();
+        var best = Array.Empty<int>();
+        var bestMatched = -1;
+        var bestCost = int.MaxValue;
+
+        Search(0, 0);
+        return best;
+
+        void Search(int jobIndex, int cost)
+        {
+            if (jobIndex == jobs.Length)
             {
-                Role = role,
-                Job = abbrev,
+                if (current.Count > bestMatched || (current.Count == bestMatched && cost < bestCost))
+                {
+                    bestMatched = current.Count;
+                    bestCost = cost;
+                    best = current.ToArray();
+                }
+
+                return;
+            }
+
+            if (current.Count + jobs.Length - jobIndex < bestMatched)
+                return;
+
+            var job = jobs[jobIndex];
+            var matchingCandidates = candidates
+                .Where((candidate, index) => !used[index] && candidate.Accepts(job))
+                .OrderBy(candidate => SlotFillCost(candidate))
+                .ThenBy(candidate => candidate.Index)
+                .ToArray();
+
+            foreach (var candidate in matchingCandidates)
+            {
+                used[candidate.Index] = true;
+                current.Add(candidate.Index);
+                Search(jobIndex + 1, cost + SlotFillCost(candidate));
+                current.RemoveAt(current.Count - 1);
+                used[candidate.Index] = false;
+            }
+
+            Search(jobIndex + 1, cost);
+        }
+    }
+
+    private static int SlotFillCost(SlotCandidate candidate)
+    {
+        if (candidate.AcceptedJobs.Count == 0)
+            return 10_000;
+
+        var acceptedRoleCount = candidate.AcceptedJobs
+            .Select(RoleFromJobAbbrev)
+            .Distinct(Ordinal)
+            .Count();
+
+        return candidate.AcceptedJobs.Count * 100 + acceptedRoleCount;
+    }
+
+    private static void ConsumeFallbackFilledSlots(
+        IReadOnlyList<SlotCandidate> candidates,
+        bool[] consumedSlots,
+        int count)
+    {
+        if (count <= 0)
+            return;
+
+        foreach (var candidate in candidates
+                     .Where(candidate => !consumedSlots[candidate.Index])
+                     .OrderBy(candidate => candidate.AcceptedJobs.Count == 0 ? 0 : 1)
+                     .ThenByDescending(candidate => candidate.AcceptedJobs.Count)
+                     .ThenBy(candidate => candidate.Index)
+                     .Take(count))
+        {
+            consumedSlots[candidate.Index] = true;
+        }
+    }
+
+    private static SlotSummary BuildOpenSlotSummary(IReadOnlyList<string> acceptedJobs)
+    {
+        if (acceptedJobs.Count == 0)
+            return BuildUnknownSlotSummary();
+
+        if (acceptedJobs.Count == 1)
+        {
+            return new SlotSummary
+            {
+                Role = RoleFromJobAbbrev(acceptedJobs[0]),
+                Job = acceptedJobs[0],
                 Count = 1,
-            });
+            };
         }
 
-        return CollapseSlots(summaries);
+        var roles = acceptedJobs.Select(RoleFromJobAbbrev).Distinct(Ordinal).ToArray();
+        var acceptedRoles = BuildAcceptedRoleGroups(roles);
+        return new SlotSummary
+        {
+            Role = GeneralizeAcceptedRoles(roles),
+            Job = null,
+            Count = 1,
+            AcceptedRoles = acceptedRoles.Count > 1 ? acceptedRoles : null,
+        };
+    }
+
+    private static SlotSummary BuildUnknownSlotSummary()
+    {
+        return new SlotSummary
+        {
+            Role = "Unknown",
+            Job = null,
+            Count = 1,
+        };
     }
 
     private static IReadOnlyList<SlotSummary> CollapseSlots(IEnumerable<SlotSummary> slots)
@@ -305,6 +458,14 @@ internal sealed class ListingMapper
             "THM" or "BLM" or "ACN" or "SMN" or "RDM" or "PCT" or "BLU" => "Caster",
             _ => "Unknown",
         };
+    }
+
+    private sealed record SlotCandidate(int Index, IReadOnlyList<string> AcceptedJobs)
+    {
+        public bool Accepts(string job)
+        {
+            return AcceptedJobs.Any(acceptedJob => Ordinal.Equals(acceptedJob, job));
+        }
     }
 
     private static string? MapJobFlagToAbbrev(JobFlags flag)
