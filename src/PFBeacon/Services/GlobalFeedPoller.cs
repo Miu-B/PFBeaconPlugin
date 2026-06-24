@@ -185,6 +185,9 @@ internal sealed class GlobalFeedPoller : IDisposable
 
     private static void Notify(ListingFeedItem item)
     {
+        if (string.Equals(item.ChangeType, "revived", StringComparison.Ordinal))
+            return;
+
         var message = BuildChatMessage(item);
         if (message is null)
             return;
@@ -216,7 +219,6 @@ internal sealed class GlobalFeedPoller : IDisposable
         var (change, changeColor) = item.ChangeType switch
         {
             "new" => ("New", NewColor),
-            "revived" => ("Rev", NewColor),
             "updated" => ("Upd", UpdatedColor),
             _ => ("Upd", UpdatedColor),
         };
