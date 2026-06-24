@@ -1,4 +1,6 @@
 using Dalamud.Game.Text;
+using Dalamud.Game.Text.SeStringHandling;
+using Dalamud.Game.Text.SeStringHandling.Payloads;
 using PFBeacon.Models;
 
 namespace PFBeacon.Services;
@@ -7,6 +9,9 @@ internal sealed class GlobalFeedPoller : IDisposable
 {
     private const int FeedPageLimit = 20;
     private const int MaxImmediatePages = 3;
+    private const ushort BrandColor = 576;
+    private const ushort NewColor = 45;
+    private const ushort UpdatedColor = 500;
 
     private readonly Configuration configuration;
     private readonly BotApiClient botApiClient;
@@ -181,7 +186,7 @@ internal sealed class GlobalFeedPoller : IDisposable
     private static void Notify(ListingFeedItem item)
     {
         var message = BuildChatMessage(item);
-        if (string.IsNullOrWhiteSpace(message))
+        if (message is null)
             return;
 
         PluginServices.Framework.RunOnFrameworkThread(() =>
@@ -201,27 +206,55 @@ internal sealed class GlobalFeedPoller : IDisposable
         });
     }
 
-    private static string BuildChatMessage(ListingFeedItem item)
+    private static SeString? BuildChatMessage(ListingFeedItem item)
     {
         var dataCenter = SanitizeInline(item.DataCenter, 32);
         var title = SanitizeInline(item.DisplayTitle, 180);
         if (string.IsNullOrWhiteSpace(dataCenter) || string.IsNullOrWhiteSpace(title))
-            return string.Empty;
+            return null;
 
-        var change = item.ChangeType switch
+        var (change, changeColor) = item.ChangeType switch
         {
-            "new" => "New",
-            "revived" => "Reappeared",
-            "updated" => "Updated",
-            _ => "Updated",
+            "new" => ("New", NewColor),
+            "revived" => ("Rev", NewColor),
+            "updated" => ("Upd", UpdatedColor),
+            _ => ("Upd", UpdatedColor),
         };
-        var privateText = item.IsPrivate ? " 🔒" : string.Empty;
+        var privateText = item.IsPrivate ? "[🔒]" : string.Empty;
         var filled = Math.Clamp(item.FilledCount, 0, Math.Max(1, item.MaxPlayers));
         var max = Math.Clamp(item.MaxPlayers, 1, 8);
         var openSlots = SanitizeInline(item.OpenSlotsText, 160);
-        var needText = string.IsNullOrWhiteSpace(openSlots) ? string.Empty : $" — Need: {openSlots}";
 
-        return SanitizeInline($"[PFBeacon] {dataCenter}: {change}{privateText} {title} — {filled}/{max} filled{needText}", 500);
+        var builder = new SeStringBuilder()
+            .AddUiForeground("[PFBeacon]", BrandColor)
+            .AddUiForeground($"[{change}]", changeColor)
+            .AddText($"[{dataCenter}]");
+
+        if (!string.IsNullOrWhiteSpace(privateText))
+            builder.AddText(privateText);
+
+        builder.AddText(" ");
+        AddPartyFinderTitle(builder, item, title);
+        builder.AddText($" - {filled}/{max} filled");
+
+        if (!string.IsNullOrWhiteSpace(openSlots))
+            builder.AddText($" - Need: {openSlots}");
+
+        return builder.Build();
+    }
+
+    private static void AddPartyFinderTitle(SeStringBuilder builder, ListingFeedItem item, string title)
+    {
+        if (item.ListingId > uint.MaxValue)
+        {
+            builder.AddText(title);
+            return;
+        }
+
+        builder
+            .AddPartyFinderLink((uint)item.ListingId, isCrossWorld: true)
+            .AddText(title)
+            .Add(RawPayload.LinkTerminator);
     }
 
     private static string SanitizeInline(string? value, int maxLength)
