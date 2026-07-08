@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace PFBeacon.Models;
 
 public sealed record PfListingSnapshot
@@ -18,7 +20,19 @@ public sealed record PfListingSnapshot
     public required bool IsMinimumItemLevel { get; init; }
     public required bool IsNoEcho { get; init; }
     public required bool IsPrivate { get; init; }
+
+    /// <summary>
+    /// Actual Party Finder listing capacity. Limited PF listings may advertise fewer slots
+    /// than the underlying 8-player duty.
+    /// </summary>
     public required int MaxPlayers { get; init; }
+
+    /// <summary>
+    /// Underlying duty capacity, used only for local filtering. This is intentionally not
+    /// sent to the bot service to keep the public API contract compact.
+    /// </summary>
+    [JsonIgnore]
+    public required int DutyMaxPlayers { get; init; }
 
     public required IReadOnlyList<SlotSummary> OpenSlots { get; init; }
     public required IReadOnlyList<SlotSummary> FilledSlots { get; init; }

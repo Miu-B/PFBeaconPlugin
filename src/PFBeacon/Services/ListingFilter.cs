@@ -19,7 +19,10 @@ internal sealed class ListingFilter
         if (string.IsNullOrWhiteSpace(snapshot.CompositeKey) || snapshot.ContentId == 0)
             return false;
 
-        if (snapshot.MaxPlayers != 8)
+        if (snapshot.DutyMaxPlayers != 8)
+            return false;
+
+        if (snapshot.MaxPlayers is < 1 or > 8)
             return false;
 
         if (configuration.RequireMinimumItemLevel && !snapshot.IsMinimumItemLevel)

@@ -25,7 +25,8 @@ internal sealed class ListingMapper
             dataCenter = "Unknown";
 
         var category = DetectContentCategory(contentName, listing.Category);
-        var maxPlayers = GetMaxPlayers(listing);
+        var dutyMaxPlayers = GetDutyMaxPlayers(listing);
+        var maxPlayers = GetListingMaxPlayers(listing, dutyMaxPlayers);
         var listingId = listing.Id;
 
         var snapshot = new PfListingSnapshot
@@ -41,6 +42,7 @@ internal sealed class ListingMapper
             IsNoEcho = HasDutyFinderSetting(listing, DutyFinderSettingsFlags.SilenceEcho),
             IsPrivate = HasSearchAreaFlag(listing, SearchAreaFlags.Private),
             MaxPlayers = maxPlayers,
+            DutyMaxPlayers = dutyMaxPlayers,
             OpenSlots = BuildOpenSlotSummaries(listing, maxPlayers),
             FilledSlots = BuildFilledSlotSummaries(listing, maxPlayers),
             ObservedAtUtc = DateTimeOffset.UtcNow,
@@ -74,7 +76,7 @@ internal sealed class ListingMapper
         return 0;
     }
 
-    private static int GetMaxPlayers(IPartyFinderListing listing)
+    private static int GetDutyMaxPlayers(IPartyFinderListing listing)
     {
         if (listing.Parties > 0)
             return listing.Parties * 8;
@@ -83,6 +85,23 @@ internal sealed class ListingMapper
             return listing.Duty.Value.QueueMaxPlayers;
 
         return 8;
+    }
+
+    private static int GetListingMaxPlayers(IPartyFinderListing listing, int dutyMaxPlayers)
+    {
+        var upperBound = Math.Clamp(dutyMaxPlayers > 0 ? dutyMaxPlayers : 8, 1, 8);
+        var knownFilled = GetPresentJobAbbrevs(listing).Count();
+        var filled = Math.Max(knownFilled, Math.Max(0, (int)listing.SlotsFilled));
+        var available = Math.Max(0, (int)listing.SlotsAvailable);
+        var reportedCapacity = filled + available;
+
+        if (reportedCapacity > 0)
+            return Math.Clamp(reportedCapacity, Math.Max(1, Math.Min(filled, upperBound)), upperBound);
+
+        if (listing.Slots.Count > 0)
+            return Math.Clamp(listing.Slots.Count, 1, upperBound);
+
+        return upperBound;
     }
 
     private static bool HasDutyFinderSetting(IPartyFinderListing listing, DutyFinderSettingsFlags flag)
@@ -154,7 +173,7 @@ internal sealed class ListingMapper
 
         ConsumeFallbackFilledSlots(candidates, consumedSlots, filledSlotCount - consumedSlots.Count(consumed => consumed));
 
-        var openSlotCount = Math.Max(0, candidates.Count - filledSlotCount);
+        var openSlotCount = Math.Max(0, maxPlayers - filledSlotCount);
         var summaries = candidates
             .Where((_, index) => !consumedSlots[index])
             .Take(openSlotCount)
@@ -236,7 +255,7 @@ internal sealed class ListingMapper
 
     private static int GetFilledSlotCount(IPartyFinderListing listing, int knownFilledJobCount, int maxPlayers)
     {
-        var slotCapacity = Math.Max(0, Math.Min(maxPlayers, listing.Slots.Count));
+        var slotCapacity = Math.Max(0, maxPlayers);
         var reportedFilledSlots = Math.Max(0, (int)listing.SlotsFilled);
         var filledSlotCount = Math.Max(knownFilledJobCount, reportedFilledSlots);
 
