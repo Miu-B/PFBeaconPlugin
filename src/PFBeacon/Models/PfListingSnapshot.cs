@@ -32,7 +32,7 @@ public sealed record PfListingSnapshot
     /// sent to the bot service to keep the public API contract compact.
     /// </summary>
     [JsonIgnore]
-    public required int DutyMaxPlayers { get; init; }
+    public int DutyMaxPlayers { get; init; }
 
     public required IReadOnlyList<SlotSummary> OpenSlots { get; init; }
     public required IReadOnlyList<SlotSummary> FilledSlots { get; init; }
